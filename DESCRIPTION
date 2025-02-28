@@ -1,0 +1,30 @@
+Package: phylometacheck
+Title: Check and Correct Sample Names between Phyloseq and Metadata
+Version: 0.1.0
+Authors@R: 
+    person("Scott", "Handley", , "scott.handley@email.com", role = c("aut", "cre"))
+Description: Tools to identify and fix discrepancies between sample names in
+    phyloseq objects and metadata files. Provides fuzzy matching algorithms
+    to detect similar names and generates interactive reports with
+    suggestions for standardization.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports: 
+    dplyr,
+    stringdist,
+    phyloseq,
+    ggplot2,
+    rmarkdown,
+    DT,
+    shiny,
+    htmltools
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    patchwork
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+URL: https://github.com/ScottHandley/phylometacheck
+BugReports: https://github.com/ScottHandley/phylometacheck/issues

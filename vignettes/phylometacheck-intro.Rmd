@@ -1,0 +1,170 @@
+---
+title: "Introduction to phylometacheck"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to phylometacheck}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Introduction
+
+The `phylometacheck` package helps microbiome researchers identify and resolve sample name discrepancies between phyloseq objects and metadata files. Using fuzzy matching algorithms, it can detect similar names and suggest corrections.
+
+This vignette demonstrates how to use the package's main functionality.
+
+## Installation
+
+You can install the development version of `phylometacheck` from GitHub:
+
+```{r eval=FALSE}
+# install.packages("devtools")
+devtools::install_github("ScottHandley/phylometacheck")
+```
+
+## Basic Usage
+
+Let's start by loading the necessary libraries:
+
+```{r setup, message=FALSE, warning=FALSE}
+library(phyloseq)
+library(phylometacheck)
+library(dplyr)
+library(ggplot2)
+```
+
+For demonstration purposes, we'll use the `GlobalPatterns` dataset from the `phyloseq` package and introduce some sample name inconsistencies:
+
+```{r}
+# Load sample data
+data(GlobalPatterns)
+meta <- data.frame(sample_data(GlobalPatterns))
+
+# Show original sample names
+head(rownames(meta), 10)
+
+# Create some deliberate mismatches
+set.seed(123)
+indices <- sample(1:nrow(meta), 5)
+rownames(meta)[indices] <- gsub("\\.", "_", rownames(meta)[indices])
+rownames(meta)[indices[1:2]] <- toupper(rownames(meta)[indices[1:2]])
+rownames(meta)[indices[3:4]] <- paste0(rownames(meta)[indices[3:4]], "_sample")
+
+# Show modified sample names
+head(rownames(meta), 10)
+```
+
+### Finding mismatches
+
+Now, let's identify which sample names don't match exactly between the phyloseq object and our modified metadata:
+
+```{r}
+# Find mismatches
+mismatches <- find_sample_mismatches(GlobalPatterns, meta)
+
+# Show samples only in phyloseq
+cat("Samples only in phyloseq:\n")
+print(head(mismatches$physeq_only, 10))
+
+# Show samples only in metadata
+cat("\nSamples only in metadata:\n")
+print(head(mismatches$meta_only, 10))
+
+# Show exact matches
+cat("\nNumber of exact matches:", length(mismatches$exact_matches), "\n")
+```
+
+### Suggesting fixes with fuzzy matching
+
+Next, we'll use fuzzy matching to suggest possible fixes for the mismatched sample names:
+
+```{r}
+# Get suggestions
+suggestions <- suggest_name_fixes(GlobalPatterns, meta)
+
+# Show top suggestions
+head(suggestions)
+```
+
+The suggestions include:
+- `physeq_name`: The sample name in the phyloseq object
+- `meta_name`: The potential matching sample name in the metadata
+- `match_quality`: A score between 0 and 1 indicating the quality of the match
+- `patterns`: The patterns of difference that were detected
+
+### Applying fixes
+
+Once we've reviewed the suggestions, we can apply the ones we think are correct:
+
+```{r}
+# Select suggestions with high match quality
+fixes_to_apply <- suggestions[suggestions$match_quality > 0.8, ]
+
+# Apply fixes to the metadata
+fixed_meta <- apply_name_fixes(
+  fixes = fixes_to_apply,
+  metadata = meta,
+  target = "metadata"
+)
+
+# Check if the fix was successful
+post_fix_mismatches <- find_sample_mismatches(GlobalPatterns, fixed_meta)
+cat("Before fixing:", length(mismatches$exact_matches), "exact matches\n")
+cat("After fixing:", length(post_fix_mismatches$exact_matches), "exact matches\n")
+```
+
+### Visualizing matches and suggestions
+
+We can visualize the relationships between sample names with the built-in plotting function:
+
+```{r, fig.width=8, fig.height=6}
+# Plot sample matches and suggestions
+plot_sample_matches(mismatches, suggestions)
+```
+
+## Interactive HTML Reports
+
+The package can generate comprehensive interactive HTML reports that make it easier to review and fix sample name discrepancies:
+
+```{r eval=FALSE}
+# Generate an interactive report
+report_path <- render_report(
+  physeq = GlobalPatterns,
+  metadata = meta,
+  output_file = "sample_name_check.html"
+)
+
+# Open the report in a browser
+browseURL(report_path)
+```
+
+The report includes:
+- Summary statistics of matches and mismatches
+- Interactive tables for exploring the data
+- Visualization of sample name relationships
+- Suggestions for fixing mismatches
+- Code for applying the corrections
+
+## Using the RMarkdown Template
+
+The package also includes an RMarkdown template:
+
+```{r eval=FALSE}
+# Create a new report from template
+rmarkdown::draft("my_report.Rmd", 
+                 template = "phyloseq-meta-check", 
+                 package = "phylometacheck")
+```
+
+You can customize this template to fit your specific needs.
+
+## Conclusion
+
+The `phylometacheck` package provides a comprehensive solution for identifying and resolving sample name mismatches between phyloseq objects and metadata files. By using fuzzy matching and interactive reports, it makes what used to be a tedious manual process much more efficient and reliable.

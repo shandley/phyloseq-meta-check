@@ -1,0 +1,5 @@
+name: Phyloseq Metadata Check
+description: >
+  Interactive report to check and fix sample name discrepancies between
+  phyloseq object and metadata
+create_dir: false

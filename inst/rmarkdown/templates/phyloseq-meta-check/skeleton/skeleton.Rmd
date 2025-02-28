@@ -1,0 +1,258 @@
+---
+title: "Phyloseq Metadata Sample Name Check"
+author: "Your Name"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    code_folding: show
+    highlight: tango
+    df_print: paged
+    self_contained: true
+params:
+  physeq_file: NULL
+  metadata_file: NULL
+  physeq_obj: NULL
+  metadata_obj: NULL
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(phyloseq)
+library(phylometacheck)
+library(dplyr)
+library(ggplot2)
+library(DT)
+library(stringdist)
+library(shiny)
+library(htmltools)
+
+# Load data either from files or objects
+physeq <- NULL
+metadata <- NULL
+
+# Try loading from files first
+if (!is.null(params$physeq_file) && file.exists(params$physeq_file)) {
+  physeq <- readRDS(params$physeq_file)
+}
+
+if (!is.null(params$metadata_file) && file.exists(params$metadata_file)) {
+  metadata <- read.csv(params$metadata_file, row.names = 1, check.names = FALSE)
+}
+
+# Try loading from objects next
+if (is.null(physeq) && !is.null(params$physeq_obj)) {
+  physeq <- params$physeq_obj
+}
+
+if (is.null(metadata) && !is.null(params$metadata_obj)) {
+  metadata <- params$metadata_obj
+}
+
+# Convert sample_data to data frame if needed
+if (!is.null(physeq) && is.null(metadata)) {
+  metadata <- as.data.frame(sample_data(physeq))
+}
+```
+
+## Overview
+
+This report analyzes sample names in your phyloseq object and metadata to identify inconsistencies. It provides:
+
+1. Summary of matches and mismatches
+2. Detailed tables of sample names unique to each dataset
+3. Fuzzy matching suggestions for similar names
+4. Interactive tools to select and apply name corrections
+5. Exportable code to apply selected corrections
+
+## Executive Summary
+
+```{r executive-summary, echo=FALSE}
+# Get sample names
+physeq_samples <- sample_names(physeq)
+meta_samples <- rownames(metadata)
+
+# Find matches and mismatches
+exact_match_count <- sum(physeq_samples %in% meta_samples)
+physeq_only_count <- sum(!physeq_samples %in% meta_samples)
+meta_only_count <- sum(!meta_samples %in% physeq_samples)
+total_samples <- length(unique(c(physeq_samples, meta_samples)))
+
+# Calculate percentages
+exact_match_pct <- round(exact_match_count / total_samples * 100, 1)
+
+# Generate suggestions if needed
+needs_suggestions <- (physeq_only_count > 0 && meta_only_count > 0)
+suggestion_txt <- ""
+if (needs_suggestions) {
+  suggestions <- suggest_name_fixes(physeq, metadata)
+  good_matches <- sum(suggestions$match_quality > 0.7)
+  if (good_matches > 0) {
+    suggestion_txt <- paste0("Found ", good_matches, " potential matches with high confidence (>70%).")
+  } else {
+    suggestion_txt <- "No high-confidence matches found between mismatched samples."
+  }
+}
+
+# Generate summary text
+if (exact_match_pct == 100) {
+  cat("**PERFECT MATCH!** All sample names match perfectly between the phyloseq object and metadata. No corrections needed.")
+} else if (exact_match_pct >= 90) {
+  cat(paste0("**GOOD MATCH!** ", exact_match_count, " of ", total_samples, " (", exact_match_pct, "%) sample names match exactly. ", 
+             physeq_only_count, " samples appear only in phyloseq and ", meta_only_count, " samples appear only in metadata. ",
+             suggestion_txt))
+} else if (exact_match_pct >= 50) {
+  cat(paste0("**PARTIAL MATCH.** ", exact_match_count, " of ", total_samples, " (", exact_match_pct, "%) sample names match exactly. ",
+             physeq_only_count, " samples appear only in phyloseq and ", meta_only_count, " samples appear only in metadata. ",
+             suggestion_txt, " Review suggestions below."))
+} else {
+  cat(paste0("**POOR MATCH!** Only ", exact_match_count, " of ", total_samples, " (", exact_match_pct, "%) sample names match exactly. ",
+             "This indicates a significant naming discrepancy between datasets. ",
+             suggestion_txt, " Review suggestions carefully."))
+}
+```
+
+## Data Summary
+
+```{r data-summary}
+if (is.null(physeq) || is.null(metadata)) {
+  stop("Both phyloseq object and metadata must be provided")
+}
+
+# Get sample names
+physeq_samples <- sample_names(physeq)
+meta_samples <- rownames(metadata)
+
+# Basic summary
+cat("Phyloseq object contains", ntaxa(physeq), "taxa and", nsamples(physeq), "samples\n")
+cat("Metadata contains", nrow(metadata), "samples and", ncol(metadata), "variables\n")
+
+# Find matches and mismatches
+exact_match_count <- sum(physeq_samples %in% meta_samples)
+physeq_only_count <- sum(!physeq_samples %in% meta_samples)
+meta_only_count <- sum(!meta_samples %in% physeq_samples)
+
+# Create summary table
+summary_df <- data.frame(
+  Category = c("Exact matches", "In phyloseq only", "In metadata only", "Total unique samples"),
+  Count = c(exact_match_count, physeq_only_count, meta_only_count, 
+            length(unique(c(physeq_samples, meta_samples))))
+)
+
+knitr::kable(summary_df)
+```
+
+## Sample Name Analysis
+
+```{r mismatch-analysis}
+# Run full mismatch analysis
+mismatches <- find_sample_mismatches(physeq, metadata)
+
+# Show exact matches
+if (length(mismatches$exact_matches) > 0) {
+  cat("### Exact Matches\n")
+  cat(paste(length(mismatches$exact_matches), "samples match exactly\n"))
+  if (length(mismatches$exact_matches) <= 10) {
+    cat(paste(mismatches$exact_matches, collapse = ", "))
+  } else {
+    cat(paste(c(head(mismatches$exact_matches, 5), "...", 
+              tail(mismatches$exact_matches, 5)), collapse = ", "))
+  }
+}
+
+# Show samples only in phyloseq
+if (length(mismatches$physeq_only) > 0) {
+  cat("\n\n### Samples only in phyloseq\n")
+  DT::datatable(data.frame(
+    Sample_Name = mismatches$physeq_only
+  ))
+}
+
+# Show samples only in metadata
+if (length(mismatches$meta_only) > 0) {
+  cat("\n\n### Samples only in metadata\n")
+  DT::datatable(data.frame(
+    Sample_Name = mismatches$meta_only
+  ))
+}
+```
+
+## Fuzzy Matching Suggestions
+
+```{r fuzzy-matching}
+# Generate suggestions
+suggestions <- suggest_name_fixes(physeq, metadata)
+
+if (nrow(suggestions) > 0) {
+  DT::datatable(suggestions, 
+                options = list(pageLength = 10),
+                rownames = FALSE) %>%
+    formatStyle('match_quality',
+                background = styleColorBar(c(0, 1), c('#f8d7da', '#d4edda')),
+                backgroundSize = '100% 90%',
+                backgroundRepeat = 'no-repeat',
+                backgroundPosition = 'center')
+}
+```
+
+## Interactive Name Correction
+
+```{r correction-interface, echo=FALSE}
+if (nrow(suggestions) > 0) {
+  # This would be implemented in a real report using Shiny interactive elements
+  cat("In an actual implementation, this section would contain interactive Shiny widgets to:")
+  cat("\n\n- Select which name pairs to correct")
+  cat("\n- Choose whether to rename phyloseq samples or metadata samples")
+  cat("\n- Apply the corrections and view the updated datasets")
+  cat("\n- Export the corrected datasets or correction code")
+}
+```
+
+## Visualization
+
+```{r visualize-matches}
+# Create sample match visualization
+plot_sample_matches(mismatches, suggestions)
+```
+
+## Code for Applying Corrections
+
+```{r correction-code, echo=TRUE, eval=FALSE}
+# This code would be dynamically generated based on user selections
+# Example:
+
+# Load required packages
+library(phyloseq)
+library(phylometacheck)
+
+# Define the corrections to apply
+corrections <- data.frame(
+  physeq_name = c("SampleA", "SampleB"),
+  meta_name = c("Sample_A", "Sample_B"),
+  match_quality = c(0.9, 0.85)
+)
+
+# Apply to metadata (change target to "physeq" to modify the phyloseq object instead)
+fixed_metadata <- apply_name_fixes(
+  fixes = corrections,
+  metadata = metadata,
+  target = "metadata"
+)
+
+# Save the corrected metadata
+write.csv(fixed_metadata, "corrected_metadata.csv")
+
+# Or merge with phyloseq
+merged_phyloseq <- phyloseq::merge_phyloseq(
+  physeq,
+  sample_data(fixed_metadata)
+)
+```
+
+## Session Info
+
+```{r session-info}
+sessionInfo()
+```
